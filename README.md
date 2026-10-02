@@ -1,162 +1,147 @@
-# Scalable E-commerce Big Data Pipeline
+# E-Commerce Big Data Pipeline
 
-An end-to-end Big Data Engineering project that simulates a production-style e-commerce data platform using **PostgreSQL, Apache Hadoop HDFS, Apache Spark / PySpark, Parquet, Avro, Apache Hive, Docker, Python, and SQL**.
+![E-Commerce Big Data Pipeline Workflow](docs/screenshots/01-pipeline-workflow.png)
 
-The project generates tens of millions of synthetic e-commerce records, ingests data from multiple source formats, stores raw data in HDFS, cleans and standardizes the datasets with Spark, builds analytical fact and dimension tables in a Gold Layer, and exposes the final data through Hive External Tables for SQL analytics.
+## Overview
 
----
+This repository documents an end-to-end **Big Data Engineering pipeline** built around a synthetic e-commerce platform. The project was designed to demonstrate the complete data engineering lifecycle rather than a single isolated Spark or Hive exercise.
 
-# Project Overview
+The platform starts by generating realistic e-commerce data across multiple source systems and file formats, moves the raw data into a distributed HDFS data lake, cleans and standardizes it with Apache Spark, builds a business-ready dimensional model in the Gold Layer, and finally exposes the results through Apache Hive for SQL analytics.
 
-The goal of this project is to design and implement a complete Big Data pipeline that demonstrates the major stages of a modern data engineering workflow:
+The final workflow is:
 
 ```text
-Data Generation
-      ↓
-PostgreSQL + CSV + Avro
-      ↓
-Bronze Layer / HDFS Landing
-      ↓
-Apache Spark
-      ↓
-Validation + Cleaning + Standardization
-      ↓
-Silver Layer / Parquet
-      ↓
-Spark Transformations + Joins
-      ↓
-Gold Layer
-      ↓
-Fact & Dimension Tables
-      ↓
+Sources
+  ↓
+Bronze Layer (HDFS Landing)
+  ↓
+Apache Spark Ingestion, Validation & Cleaning
+  ↓
+Silver Layer (Standardized Parquet)
+  ↓
+Apache Spark Transformations & Dimensional Modeling
+  ↓
+Gold Layer (Facts + Dimensions)
+  ↓
 Apache Hive External Tables
-      ↓
+  ↓
 SQL Analytics
 ```
 
-The project was intentionally designed to work with a large enough dataset to demonstrate distributed storage, Spark processing, JDBC ingestion, Parquet optimization, dimensional modeling, and Hive analytics.
+---
+
+## Project Goals
+
+The project was built to demonstrate practical experience with:
+
+- Multi-source ingestion
+- Distributed storage using Hadoop HDFS
+- Apache Spark / PySpark processing
+- PostgreSQL ingestion through JDBC
+- Parallel JDBC reads for large relational tables
+- CSV and Avro ingestion
+- Data validation and rejected-record handling
+- Parquet-based analytical storage
+- Bronze / Silver / Gold data-lake architecture
+- Fact and dimension modeling
+- Star-schema design
+- Hive External Tables
+- HiveServer2 and Beeline
+- SQL analytics over tens of millions of records
+- Linux, Docker, networking, and large-scale synthetic data generation
 
 ---
 
-# Architecture
+# 1. Technology Stack
+
+| Technology | Role in the Project |
+|---|---|
+| **Python** | Synthetic data generation and PySpark jobs |
+| **PostgreSQL** | Operational transactional source database |
+| **Docker / Docker Compose** | Containerized PostgreSQL source environment |
+| **Apache Hadoop HDFS** | Distributed data-lake storage |
+| **Apache Spark / PySpark 4.1.1** | Ingestion, validation, cleaning, transformations, joins, and modeling |
+| **JDBC** | Direct PostgreSQL-to-Spark ingestion |
+| **CSV** | Batch source format for payments and shipments |
+| **Avro** | Event source format for web events |
+| **Parquet** | Columnar storage for Silver and Gold datasets |
+| **Apache Hive 4.2.1** | SQL serving layer and metadata management |
+| **HiveServer2 / Beeline** | JDBC-based Hive query interface |
+| **Apache Tez** | Hive execution environment |
+| **SQL** | Analytical querying |
+| **Linux** | Big-data runtime environment |
+| **VMware** | Hadoop/Spark/Hive virtual machine environment |
+
+---
+
+# 2. High-Level Architecture
+
+The project uses three major source types:
+
+### Operational database source
+
+PostgreSQL stores:
 
 ```text
-                         ┌──────────────────────┐
-                         │      PostgreSQL      │
-                         │                      │
-                         │ customers            │
-                         │ suppliers            │
-                         │ products             │
-                         │ orders               │
-                         │ order_items          │
-                         └──────────┬───────────┘
-                                    │
-                                  JDBC
-                                    │
-                                    ▼
+customers
+suppliers
+products
+orders
+order_items
+```
 
-CSV Files ───────────────► ┌──────────────────────┐ ◄────────────── Avro Files
-payments                   │     BRONZE LAYER     │                 web_events
-shipments                  │        HDFS          │
-                           └──────────┬───────────┘
-                                      │
-                                      ▼
-                           ┌──────────────────────┐
-                           │    Apache Spark      │
-                           │                      │
-                           │ Validation           │
-                           │ Cleaning             │
-                           │ Standardization      │
-                           │ Type Conversion      │
-                           │ Rejected Records     │
-                           └──────────┬───────────┘
-                                      │
-                                      ▼
-                           ┌──────────────────────┐
-                           │     SILVER LAYER     │
-                           │       Parquet        │
-                           └──────────┬───────────┘
-                                      │
-                                      ▼
-                           ┌──────────────────────┐
-                           │    Apache Spark      │
-                           │                      │
-                           │ Joins                │
-                           │ Business Logic       │
-                           │ Dimensional Modeling │
-                           └──────────┬───────────┘
-                                      │
-                                      ▼
-                           ┌──────────────────────┐
-                           │      GOLD LAYER      │
-                           │                      │
-                           │ Dimensions           │
-                           │ Facts                │
-                           └──────────┬───────────┘
-                                      │
-                                      ▼
-                           ┌──────────────────────┐
-                           │    Apache Hive       │
-                           │   External Tables    │
-                           └──────────┬───────────┘
-                                      │
-                                      ▼
-                           ┌──────────────────────┐
-                           │    SQL Analytics     │
-                           └──────────────────────┘
+### Batch file sources
+
+CSV files store:
+
+```text
+payments
+shipments
+```
+
+### Event source
+
+Avro files store:
+
+```text
+web_events
+```
+
+The architectural flow is:
+
+```text
+PostgreSQL ──JDBC──────────┐
+                           │
+CSV files ────────┐        │
+                  ▼        ▼
+               HDFS / Spark
+                  ▲
+Avro files ───────┘
+
+              ↓
+
+      Bronze → Silver → Gold
+
+              ↓
+
+        Hive External Tables
+
+              ↓
+
+          SQL Analytics
 ```
 
 ---
 
-# Technology Stack
+# 3. Synthetic E-Commerce Data Generator
 
-## Programming
+A custom Python generator was built to create a realistic synthetic e-commerce environment.
 
-- Python
-- PySpark
-- SQL
-- Scala / Spark Shell for schema inspection
+The generator produces related records instead of independent random files. This means relationships between orders, customers, products, suppliers, payments, shipments, and events are maintained.
 
-## Big Data
+## Generated scale
 
-- Apache Hadoop
-- HDFS
-- Apache Spark 4.1.1
-- Apache Hive 4.2.1
-- Apache Tez
-
-## Data Formats
-
-- CSV
-- Avro
-- Parquet
-
-## Database
-
-- PostgreSQL
-
-## Infrastructure
-
-- Docker
-- Docker Compose
-- Linux
-- VMware Virtual Machine
-- Windows host machine
-
-## Connectivity
-
-- JDBC
-- TCP networking between the Spark VM and PostgreSQL running on the Windows host
-
----
-
-# Dataset Scale
-
-The data generator produces a large synthetic e-commerce dataset.
-
-## Core Dataset
-
-| Dataset | Approximate Records |
+| Dataset | Volume |
 |---|---:|
 | Customers | 1,000,000 |
 | Suppliers | 5,000 |
@@ -167,56 +152,21 @@ The data generator produces a large synthetic e-commerce dataset.
 | Shipments | ~3.6 million |
 | Web Events | ~17 million |
 
-The project processes **more than 40 million logical records** across multiple sources.
+The project therefore processes **more than 40 million logical records**.
 
----
+## Generator design
 
-# Synthetic Data Generator
+The generator uses:
 
-A custom Python data generator was developed to create realistic and internally consistent e-commerce data.
+- Deterministic seed configuration
+- Batch-based inserts
+- File rolling for large outputs
+- Referential consistency between datasets
+- Controlled data-quality noise
 
-The generator creates data for three different source types.
-
-## PostgreSQL
-
-The following operational tables are generated directly into PostgreSQL:
-
-```text
-customers
-suppliers
-products
-orders
-order_items
-```
-
-## CSV
-
-External batch-style data is generated as CSV:
-
-```text
-payments
-shipments
-```
-
-## Avro
-
-Web activity and behavioral event data is generated as Avro:
-
-```text
-web_events
-```
-
----
-
-# Data Generator Configuration
-
-The generator was configured approximately as follows:
+Representative configuration:
 
 ```yaml
-project:
-  name: ecommerce_source_generator
-  output_dir: output
-
 runtime:
   seed: 42
   batch_size: 20000
@@ -232,8 +182,6 @@ scale:
 generation:
   min_items_per_order: 1
   max_items_per_order: 5
-  min_quantity: 1
-  max_quantity: 5
 
 noise:
   enabled: true
@@ -244,89 +192,51 @@ noise:
   late_event_rate: 0.010
 ```
 
----
+## Controlled data-quality issues
 
-# Data Consistency
+The generator intentionally introduces realistic issues such as:
 
-The generator was designed to preserve relationships between datasets.
-
-Examples include:
-
-- Every valid order references an existing customer.
-- Every order item references an existing order.
-- Every order item references an existing product.
-- Products reference valid suppliers.
-- Payment records reference valid orders.
-- Shipment records reference valid eligible orders.
-- Web events reference valid customers and products where required.
-- Order totals are derived from order item values.
-- Payment amounts are linked to the corresponding order totals.
-
----
-
-# Controlled Data Quality Noise
-
-The project intentionally introduces controlled data-quality issues to simulate realistic ingestion scenarios.
-
-Examples include:
-
-- Leading or trailing whitespace
-- Inconsistent casing
-- Optional null fields
+- Leading/trailing whitespace
+- Casing inconsistencies
+- Optional null values
 - Duplicate web events
 - Late-arriving events
 
-This allows the Spark pipeline to demonstrate actual cleaning and validation rather than processing perfectly clean data.
+This ensures the Spark pipeline performs real validation and cleaning rather than processing perfectly clean synthetic data.
 
 ---
 
-# Source File Generation
+# 4. Source Data Layout
 
-The generated external source files included:
+The generated non-database source output consisted of:
 
-```text
-payments:
-9 CSV files
+- **34 Avro files** for web events
+- **9 CSV files** for payments
+- **8 CSV files** for shipments
 
-shipments:
-8 CSV files
-
-web_events:
-34 Avro files
-```
-
-Each large output file is rolled after approximately:
-
-```text
-500,000 rows
-```
-
-This avoids producing a single extremely large source file.
+The files were then loaded into HDFS.
 
 ---
 
-# Bronze Layer
+# 5. Bronze Layer — Raw HDFS Landing
 
-The Bronze Layer represents the raw / landing area in HDFS.
+The Bronze Layer stores raw input data with minimal modification.
 
-The external CSV and Avro files are copied to HDFS with minimal modification.
-
-Example structure:
+HDFS paths:
 
 ```text
-/data/ecommerce/landing/
-
-├── csv/
-│   ├── payments/
-│   └── shipments/
-│
-└── avro/
-    └── web_events/
+/data/ecommerce/landing/csv/payments
+/data/ecommerce/landing/csv/shipments
+/data/ecommerce/landing/avro/web_events
 ```
 
-Data is uploaded using commands similar to:
+Example ingestion commands:
 
 ```bash
+hdfs dfs -mkdir -p /data/ecommerce/landing/csv/payments
+hdfs dfs -mkdir -p /data/ecommerce/landing/csv/shipments
+hdfs dfs -mkdir -p /data/ecommerce/landing/avro/web_events
+
 hdfs dfs -put output/csv/payments/* \
   /data/ecommerce/landing/csv/payments/
 
@@ -337,19 +247,185 @@ hdfs dfs -put output/avro/web_events/* \
   /data/ecommerce/landing/avro/web_events/
 ```
 
----
+### Bronze Layer evidence
 
-# Silver Layer
+![Bronze Layer Summary](docs/screenshots/02-bronze-layer-summary.png)
 
-The Silver Layer contains cleaned and standardized data stored in **Parquet**.
-
-Location:
+Observed raw landing storage:
 
 ```text
-/data/ecommerce/standardized/
+Avro: 366.2 MB
+CSV:  930.1 MB
 ```
 
-The following datasets were created:
+This represents roughly **1.3 GB of external raw landing data**, before including the PostgreSQL source tables.
+
+---
+
+# 6. Spark Ingestion and Validation
+
+Apache Spark was used as the primary processing engine.
+
+Spark reads:
+
+- CSV from HDFS
+- Avro from HDFS
+- PostgreSQL through JDBC
+
+The Spark jobs perform:
+
+- Schema loading
+- Timestamp conversion
+- String trimming
+- Casing standardization
+- Required-key validation
+- Invalid-record isolation
+- Parquet output generation
+
+Examples of standardization logic include:
+
+```python
+upper(trim(col("status")))
+upper(trim(col("currency")))
+to_timestamp(col("payment_ts"))
+```
+
+## Rejected records
+
+The data lake also contains a rejected area:
+
+```text
+/data/ecommerce/rejected
+```
+
+The purpose of this layer is to separate invalid records from valid standardized data instead of silently dropping them.
+
+---
+
+# 7. Avro Integration
+
+Web-event source data is stored as Avro.
+
+Spark reads Avro using:
+
+```python
+spark.read.format("avro").load(EVENTS_PATH)
+```
+
+Spark 4.1.1 required the Avro package to be supplied when running the job:
+
+```bash
+spark-submit \
+  --packages org.apache.spark:spark-avro_2.13:4.1.1 \
+  ingestion.py
+```
+
+The successful output was then written as Parquet in the Silver Layer.
+
+---
+
+# 8. PostgreSQL to Spark Through JDBC
+
+The operational PostgreSQL source runs inside Docker on the Windows host.
+
+Spark runs inside the Linux big-data VM.
+
+The network topology used during the project was:
+
+```text
+Spark / Hadoop VM
+192.168.161.128
+
+        │
+        │ JDBC / TCP 5433
+        ▼
+
+Windows Host
+192.168.161.1
+
+        │
+        ▼
+
+Docker PostgreSQL
+Port mapping: 5433 → 5432
+Database: ecommerce
+```
+
+Connectivity was validated using:
+
+```bash
+nc -zv 192.168.161.1 5433
+```
+
+A successful connection confirmed that the VM could reach the PostgreSQL service.
+
+The Spark JDBC URL used was:
+
+```text
+jdbc:postgresql://192.168.161.1:5433/ecommerce
+```
+
+The PostgreSQL JDBC driver was supplied through Spark:
+
+```bash
+spark-submit \
+  --packages org.postgresql:postgresql:42.7.7 \
+  postgres_ingestion.py
+```
+
+The initial connectivity test successfully read:
+
+```text
+1,000,000 customers
+```
+
+from PostgreSQL into Spark.
+
+---
+
+# 9. Parallel JDBC Ingestion
+
+A single JDBC read is not ideal for multi-million-row source tables.
+
+The project therefore implemented partitioned JDBC ingestion for the largest tables.
+
+## Orders
+
+```python
+.option("partitionColumn", "order_id")
+.option("lowerBound", "1")
+.option("upperBound", "5000000")
+.option("numPartitions", "8")
+```
+
+## Order Items
+
+```python
+.option("partitionColumn", "order_item_id")
+.option("lowerBound", "1")
+.option("upperBound", "20000000")
+.option("numPartitions", "12")
+```
+
+This allows Spark to split the ID range into multiple partitions and perform database reads in parallel, subject to the available Spark execution resources.
+
+### Parallel JDBC evidence
+
+![Parallel JDBC Ingestion](docs/screenshots/06-parallel-jdbc-ingestion.png)
+
+This was a major engineering improvement over a single-threaded database ingestion approach.
+
+---
+
+# 10. Silver Layer — Standardized Parquet
+
+After validation and cleaning, all datasets are stored as Parquet under:
+
+```text
+/data/ecommerce/standardized
+```
+
+The Silver Layer contains:
 
 ```text
 customers
@@ -362,241 +438,87 @@ shipments
 web_events
 ```
 
----
+### Silver Layer evidence
 
-# Silver Layer Storage Size
+![Silver Layer Summary](docs/screenshots/03-silver-layer-summary.png)
 
-The resulting Parquet datasets had approximately the following HDFS sizes:
+Observed storage:
 
-| Dataset | Size |
+| Dataset | HDFS Size |
 |---|---:|
 | customers | 44.5 MB |
-| suppliers | 139.9 KB |
-| products | 1.5 MB |
-| orders | 165.7 MB |
 | order_items | 254.7 MB |
+| orders | 165.7 MB |
 | payments | 274.0 MB |
+| products | 1.5 MB |
 | shipments | 133.9 MB |
+| suppliers | 139.9 KB |
 | web_events | 411.6 MB |
 
-Total Silver Layer size:
+Total Silver Layer size is approximately **1.29 GB**.
 
-```text
-~1.29 GB
-```
+## Why Parquet?
 
-The reduction in size compared with raw source data demonstrates the storage benefits of using a columnar format such as Parquet.
-
----
-
-# Spark Data Cleaning
-
-Spark performs multiple cleaning and standardization tasks.
-
-Examples include:
-
-## String Cleaning
-
-```python
-trim(...)
-upper(...)
-```
-
-Used for fields such as:
-
-```text
-currency
-status
-payment_method
-payment_status
-carrier
-shipment_status
-```
-
-## Timestamp Conversion
-
-Raw timestamps are converted into proper Spark timestamp types using:
-
-```python
-to_timestamp(...)
-```
-
-## Validation
-
-Important keys are checked for null values.
-
-Examples:
-
-```text
-payment_id
-order_id
-customer_id
-shipment_id
-event_id
-product_id
-timestamp columns
-```
-
-Invalid rows can be separated into rejected datasets for quality monitoring.
-
----
-
-# PostgreSQL to Spark JDBC Ingestion
-
-One of the major engineering tasks in this project was connecting Spark running inside a Linux VM to PostgreSQL running inside Docker on the Windows host.
-
-Environment:
-
-```text
-Windows Host
-192.168.161.1
-
-Spark / Hadoop VM
-192.168.161.128
-
-PostgreSQL Port
-5433
-```
-
-The network connection was tested using:
-
-```bash
-nc -zv 192.168.161.1 5433
-```
-
-Successful output confirmed that the VM could reach PostgreSQL.
-
----
-
-# JDBC Connection
-
-Spark connects using:
-
-```text
-jdbc:postgresql://192.168.161.1:5433/ecommerce
-```
-
-A PostgreSQL JDBC driver is loaded using Spark packages:
-
-```bash
-spark-submit \
-  --packages org.postgresql:postgresql:42.7.7 \
-  postgres_ingestion.py
-```
-
-The connection was validated successfully by reading the complete customer table.
-
-Result:
-
-```text
-CUSTOMERS COUNT
-1000000
-```
-
----
-
-# Parallel JDBC Ingestion
-
-Reading millions of database rows through a single JDBC connection is inefficient.
-
-For large tables, Spark JDBC partitioning was implemented.
-
-For example:
-
-```python
-.option("partitionColumn", "order_id")
-.option("lowerBound", "1")
-.option("upperBound", "5000000")
-.option("numPartitions", "8")
-```
-
-This allows Spark to split the database read into multiple ranges.
-
-Conceptually:
-
-```text
-5,000,000 orders
-        ↓
-order_id partitioning
-        ↓
-8 JDBC partitions
-        ↓
-Parallel Spark reads
-```
-
-A similar strategy was used for the much larger `order_items` dataset:
-
-```python
-.option("partitionColumn", "order_item_id")
-.option("lowerBound", "1")
-.option("upperBound", "20000000")
-.option("numPartitions", "12")
-```
-
-This demonstrates scalable database ingestion instead of loading very large tables through a single JDBC stream.
-
----
-
-# Parquet
-
-Parquet is used as the main analytical storage format for the Silver and Gold layers.
-
-Reasons include:
+Parquet was chosen because it provides:
 
 - Columnar storage
 - Compression
 - Efficient analytical scans
 - Predicate pushdown
-- Compatibility with Spark
-- Compatibility with Hive
-- Reduced storage compared with raw formats
+- Good Spark integration
+- Good Hive integration
+- Reduced storage footprint compared with row-oriented text formats
 
 ---
 
-# Avro Integration
+# 11. HDFS Data Lake Structure
 
-Web event data is generated in Avro format.
+The project data lake contains four main areas:
 
-Spark reads Avro using:
-
-```python
-spark.read.format("avro").load(...)
+```text
+/data/ecommerce/landing
+/data/ecommerce/rejected
+/data/ecommerce/standardized
+/data/ecommerce/gold
 ```
 
-Spark's Avro module is loaded using:
+These correspond to:
 
-```bash
-spark-submit \
-  --packages org.apache.spark:spark-avro_2.13:4.1.1 \
-  ingestion.py
+```text
+landing       → Bronze
+standardized  → Silver
+gold          → Gold
+rejected      → Data-quality isolation
 ```
 
-The web event pipeline successfully processed Avro source files and converted standardized output to Parquet.
+### HDFS structure evidence
+
+![HDFS Data Lake Structure](docs/screenshots/05-hdfs-data-lake-structure.png)
 
 ---
 
-# Gold Layer
+# 12. Gold Layer — Business-Ready Dimensional Model
 
-The Gold Layer contains business-ready analytical datasets.
+The Gold Layer transforms standardized datasets into structures optimized for analytics.
 
 Location:
 
 ```text
-/data/ecommerce/gold/
+/data/ecommerce/gold
 ```
 
-The Gold Layer includes:
+The model contains four dimensions and four facts.
 
-## Dimensions
+## Dimension tables
 
 ```text
 dim_customer
-dim_product
 dim_supplier
+dim_product
 dim_date
 ```
 
-## Facts
+## Fact tables
 
 ```text
 fact_sales
@@ -605,11 +527,13 @@ fact_shipments
 fact_events
 ```
 
----
+### Gold Layer evidence
 
-# Gold Layer Storage Size
+![Gold Layer Summary](docs/screenshots/04-gold-layer-summary.png)
 
-| Dataset | Size |
+Observed HDFS storage:
+
+| Gold Dataset | HDFS Size |
 |---|---:|
 | dim_customer | 46.9 MB |
 | dim_date | 6.1 KB |
@@ -622,26 +546,23 @@ fact_events
 
 ---
 
-# Dimensional Model
+# 13. Star Schema
 
-The Gold Layer follows a dimensional modeling approach.
+The analytical model is centered around fact tables connected to dimensions.
 
-Simplified model:
+Simplified view:
 
 ```text
-                    dim_customer
-                         │
-                         │ customer_id
-                         │
-                         ▼
-dim_product ───────► fact_sales ◄─────── dim_date
-     │                   │
-     │                   │
-     ▼                   ▼
-dim_supplier          Measures
+                 dim_customer
+                      │
+                      │
+dim_product ───── fact_sales ───── dim_date
+     │                │
+     │                │
+dim_supplier           │
 ```
 
-Additional fact tables include:
+Additional facts:
 
 ```text
 fact_payments
@@ -651,9 +572,9 @@ fact_events
 
 ---
 
-# fact_sales
+# 14. fact_sales Construction
 
-`fact_sales` is created by joining operational datasets such as:
+`fact_sales` is built primarily from:
 
 ```text
 orders
@@ -663,24 +584,30 @@ order_items
 products
 ```
 
-Important fields include:
+The resulting schema contains identifiers, dimension keys, timestamps, quantities, pricing, and calculated revenue.
+
+### fact_sales schema evidence
+
+![fact_sales Schema](docs/screenshots/07-fact-sales-schema.png)
+
+Schema:
 
 ```text
-order_item_id
-order_id
-customer_id
-product_id
-supplier_id
-date_key
-order_ts
-quantity
-unit_price
-line_total
-order_status
-currency
+order_item_id  BIGINT
+order_id       BIGINT
+customer_id    BIGINT
+product_id     BIGINT
+supplier_id    BIGINT
+date_key       INT
+order_ts       TIMESTAMP
+quantity       INT
+unit_price     DECIMAL(12,2)
+line_total     DECIMAL(23,2)
+order_status   STRING
+currency       STRING
 ```
 
-`line_total` is calculated using:
+`line_total` is calculated as:
 
 ```text
 quantity × unit_price
@@ -688,95 +615,24 @@ quantity × unit_price
 
 ---
 
-# fact_sales Scale
+# 15. Date Dimension
 
-Hive successfully queried:
+The date dimension is generated from dates appearing in orders, payments, shipments, and events.
 
-```text
-15,004,502 rows
-```
-
-from `fact_sales`.
-
-Example validation:
-
-```sql
-SELECT COUNT(*)
-FROM fact_sales;
-```
-
-Result:
+Representative columns:
 
 ```text
-15004502
+date
+date_key
+year
+quarter
+month
+day
+day_of_week
+is_weekend
 ```
 
-This confirms that the Gold Layer and Hive integration successfully operate over more than 15 million sales fact records.
-
----
-
-# dim_customer
-
-Schema:
-
-```text
-customer_id BIGINT
-full_name STRING
-email STRING
-country STRING
-city STRING
-created_at TIMESTAMP
-updated_at TIMESTAMP
-```
-
----
-
-# dim_supplier
-
-Schema:
-
-```text
-supplier_id BIGINT
-supplier_name STRING
-country STRING
-created_at TIMESTAMP
-```
-
----
-
-# dim_product
-
-Schema:
-
-```text
-product_id BIGINT
-supplier_id BIGINT
-sku STRING
-product_name STRING
-category STRING
-unit_price DECIMAL(12,2)
-unit_cost DECIMAL(12,2)
-active BOOLEAN
-```
-
----
-
-# dim_date
-
-Schema:
-
-```text
-date DATE
-date_key INT
-year INT
-quarter INT
-month INT
-day INT
-day_of_week INT
-is_weekend BOOLEAN
-```
-
-The date key uses the format:
+The numeric date key uses:
 
 ```text
 YYYYMMDD
@@ -785,107 +641,36 @@ YYYYMMDD
 Example:
 
 ```text
-2026-09-20
-↓
-20260920
+2026-09-20 → 20260920
 ```
 
 ---
 
-# fact_payments
+# 16. Apache Hive Serving Layer
 
-Includes:
+Apache Hive acts as the SQL-serving layer on top of the Gold Parquet datasets.
 
-```text
-payment_id
-order_id
-customer_id
-payment_ts
-amount
-currency
-payment_method
-payment_status
-transaction_ref
-date_key
+HiveServer2 is started using:
+
+```bash
+/home/hadoop/hive/bin/hiveserver2
 ```
 
----
-
-# fact_shipments
-
-Includes:
-
-```text
-shipment_id
-order_id
-customer_id
-carrier
-tracking_number
-shipped_ts
-delivered_ts
-shipment_status
-date_key
-```
-
----
-
-# fact_events
-
-Includes:
-
-```text
-event_id
-event_ts
-event_type
-customer_id
-order_id
-product_id
-device
-session_id
-date_key
-```
-
----
-
-# Apache Hive
-
-Hive is used as the SQL serving layer over the Gold Layer.
-
-Hive version:
-
-```text
-Apache Hive 4.2.1
-```
-
-HiveServer2 is used with Beeline.
-
-Connection:
+Beeline connects with:
 
 ```text
 jdbc:hive2://localhost:10000
 ```
 
----
-
-# Hive Database
-
-A dedicated Hive database was created:
+The project created:
 
 ```sql
 CREATE DATABASE ecommerce_dw;
 ```
 
-Then:
+All Gold datasets were then registered as **Hive External Tables**.
 
-```sql
-USE ecommerce_dw;
-```
-
----
-
-# Hive External Tables
-
-Hive External Tables are created directly over the Parquet files stored in the Gold Layer.
+External tables were used because the data already exists in HDFS. Hive therefore stores metadata and reads the Parquet files directly instead of duplicating them.
 
 Example:
 
@@ -908,13 +693,9 @@ STORED AS PARQUET
 LOCATION '/data/ecommerce/gold/fact_sales';
 ```
 
-Hive does not duplicate the data.
-
-Instead, Hive stores metadata describing the existing Parquet files.
-
 ---
 
-# Hive Tables Created
+# 17. Hive External Tables Created
 
 The following eight tables were successfully registered:
 
@@ -929,99 +710,95 @@ fact_sales
 fact_shipments
 ```
 
+### Hive table evidence
+
+![Hive External Tables](docs/screenshots/08-hive-external-tables.png)
+
 ---
 
-# Example Analytics Query
+# 18. Large-Scale Hive Validation
 
-Revenue, units sold, and orders by product category:
+A direct Hive query was executed against `fact_sales`:
+
+```sql
+SELECT COUNT(*) AS fact_sales_rows
+FROM fact_sales;
+```
+
+Result:
+
+```text
+15,004,502
+```
+
+### Validation evidence
+
+![fact_sales Row Count](docs/screenshots/09-fact-sales-count.png)
+
+This validates the complete chain:
+
+```text
+Source Data
+→ Spark
+→ Silver
+→ Gold
+→ Parquet
+→ Hive Metadata
+→ Hive SQL
+```
+
+---
+
+# 19. Monthly Sales Analytics
+
+An analytical query was executed by joining:
+
+```text
+fact_sales
++
+dim_date
+```
+
+Query:
 
 ```sql
 SELECT
-    p.category,
+    d.year,
+    d.month,
     ROUND(SUM(f.line_total), 2) AS total_revenue,
     SUM(f.quantity) AS units_sold,
     COUNT(DISTINCT f.order_id) AS orders_count
 FROM fact_sales f
-JOIN dim_product p
-    ON f.product_id = p.product_id
-GROUP BY p.category
-ORDER BY total_revenue DESC;
+JOIN dim_date d
+    ON f.date_key = d.date_key
+GROUP BY
+    d.year,
+    d.month
+ORDER BY
+    d.year,
+    d.month;
 ```
+
+The query produced **13 monthly result rows**, covering October 2025 through October 2026 in the generated dataset.
+
+### Monthly analytics evidence
+
+![Monthly Sales Analytics](docs/screenshots/10-monthly-sales-analytics.png)
+
+This query demonstrates:
+
+- Fact-to-dimension joins
+- Date-based aggregation
+- Revenue aggregation
+- Quantity aggregation
+- Distinct order counting
+- Hive SQL analytics over more than 15 million fact rows
 
 ---
 
-# Data Lake Layer Mapping
+# 20. Main Engineering Challenges Solved
 
-The project uses a Medallion-style architecture.
-
-```text
-Bronze
-=
-Raw / Landing data
-
-Silver
-=
-Cleaned and standardized data
-
-Gold
-=
-Business-ready analytical datasets
-```
-
-Project paths:
-
-```text
-/data/ecommerce/landing
-→ Bronze Layer
-
-/data/ecommerce/standardized
-→ Silver Layer
-
-/data/ecommerce/gold
-→ Gold Layer
-```
-
----
-
-# HDFS
-
-HDFS is used as the distributed storage layer.
-
-Main project paths:
-
-```text
-/data/ecommerce/landing
-/data/ecommerce/standardized
-/data/ecommerce/rejected
-/data/ecommerce/gold
-```
-
----
-
-# Spark Processing
-
-Spark is responsible for:
-
-- Reading CSV
-- Reading Avro
-- Reading PostgreSQL via JDBC
-- Schema inference / conversion
-- Data cleaning
-- Validation
-- Standardization
-- Parquet writing
-- Parallel JDBC ingestion
-- Joins
-- Business transformations
-- Fact table construction
-- Dimension table construction
-- Date dimension generation
-
----
-
-# Major Engineering Challenges Solved
-
-## 1. Multi-source Data Ingestion
+## Challenge 1 — Different source technologies
 
 The project combines:
 
@@ -1031,141 +808,107 @@ CSV
 Avro
 ```
 
-inside one analytical pipeline.
+into a single pipeline.
+
+**Solution:** Spark was used as the common processing layer.
 
 ---
 
-## 2. Large PostgreSQL Tables
+## Challenge 2 — PostgreSQL running outside the Spark VM
 
-A basic JDBC read worked for smaller tables but was not appropriate for multi-million-row tables.
+PostgreSQL runs in Docker on Windows while Spark runs in Linux.
 
-Parallel JDBC partitioning was introduced for:
+**Solution:**
 
-```text
-orders
-order_items
-```
-
-This improved scalability and demonstrated Spark database ingestion best practices.
+- VMware host networking
+- Docker port exposure
+- TCP connectivity testing
+- JDBC connection from Spark to the host
 
 ---
 
-## 3. PostgreSQL Running Outside the VM
+## Challenge 3 — Existing PostgreSQL port conflict
 
-Spark runs inside a Linux VM while PostgreSQL runs in Docker on Windows.
+Another PostgreSQL environment already occupied `5432`.
 
-Network connectivity between the environments had to be configured and tested.
-
-Architecture:
+**Solution:**
 
 ```text
-Spark VM
-192.168.161.128
-      │
-      │ JDBC
-      ▼
-Windows Host
-192.168.161.1:5433
-      │
-      ▼
-Docker PostgreSQL
+Host port 5433 → Container port 5432
 ```
 
 ---
 
-## 4. PostgreSQL Port Conflict
+## Challenge 4 — Large relational source tables
 
-Another PostgreSQL environment was already using port `5432`.
-
-The e-commerce PostgreSQL container was therefore exposed using:
+The source contains:
 
 ```text
-5433:5432
+5,000,000 orders
+15,004,502 order_items
 ```
 
-The project then connected through host port:
+A basic single JDBC read was not appropriate.
 
-```text
-5433
-```
+**Solution:** Parallel JDBC partitioning by numeric primary key.
 
 ---
 
-## 5. Spark Avro Dependency
+## Challenge 5 — Spark Avro support
 
-Spark required the external Avro module.
+The first Spark ingestion attempt failed because the Avro module was not present.
 
-The pipeline was corrected by adding:
+**Solution:**
 
 ```text
 org.apache.spark:spark-avro_2.13:4.1.1
 ```
 
-during Spark execution.
+was supplied through `spark-submit --packages`.
 
 ---
 
-## 6. Parquet Optimization
+## Challenge 6 — Data-quality simulation
 
-Raw CSV / Avro / database data was converted into Parquet to improve storage efficiency and analytical performance.
+The data generator deliberately produces inconsistent input data.
 
----
-
-## 7. Dimensional Modeling
-
-Operational datasets were transformed into analytics-focused:
-
-```text
-dimensions
-+
-fact tables
-```
-
-instead of querying normalized source tables directly.
+**Solution:** Spark cleaning, normalization, validation, and rejected-record handling.
 
 ---
 
-## 8. Hive External Tables
+## Challenge 7 — Serving analytics without copying Gold data again
 
-Hive External Tables were used so the SQL layer could query the Gold Layer without duplicating data.
+The Gold Layer already existed as Parquet in HDFS.
 
----
-
-# Validation Results
-
-Major successful validation points include:
-
-```text
-PostgreSQL network connectivity: PASSED
-
-Spark JDBC connectivity: PASSED
-
-Customer count:
-1,000,000
-
-CSV ingestion: PASSED
-
-Avro ingestion: PASSED
-
-Silver Parquet generation: PASSED
-
-Gold Layer generation: PASSED
-
-HiveServer2 connectivity: PASSED
-
-Hive database creation: PASSED
-
-8 Hive external tables created: PASSED
-
-fact_sales Hive row count:
-15,004,502
-```
+**Solution:** Hive External Tables were created directly over the Gold paths.
 
 ---
 
-# Repository Structure
+# 21. Important Validation Results
 
-Recommended repository structure:
+| Validation | Result |
+|---|---|
+| Hadoop HDFS running | Passed |
+| YARN services running | Passed |
+| PostgreSQL network connection | Passed |
+| Spark JDBC connection | Passed |
+| 1M customers read through JDBC | Passed |
+| CSV ingestion | Passed |
+| Avro ingestion | Passed |
+| Silver Parquet generation | Passed |
+| Parallel JDBC ingestion | Passed |
+| Gold Layer generation | Passed |
+| HiveServer2 connection | Passed |
+| `ecommerce_dw` database creation | Passed |
+| 8 Hive External Tables | Passed |
+| `fact_sales` row count | **15,004,502** |
+| Monthly sales analytics | Passed |
+
+---
+
+# 22. Repository Structure
+
+Recommended repository layout:
 
 ```text
 ecommerce-bigdata-pipeline/
@@ -1192,25 +935,25 @@ ecommerce-bigdata-pipeline/
 │   ├── create_gold_tables.hql
 │   └── analytics_queries.hql
 │
-├── sample-data/
-│   ├── payments/
-│   ├── shipments/
-│   └── web_events/
-│
-├── docs/
-│   ├── architecture.md
-│   ├── data-model.md
-│   └── screenshots/
-│
-└── diagrams/
-    └── architecture.png
+└── docs/
+    └── screenshots/
+        ├── 01-pipeline-workflow.png
+        ├── 02-bronze-layer-summary.png
+        ├── 03-silver-layer-summary.png
+        ├── 04-gold-layer-summary.png
+        ├── 05-hdfs-data-lake-structure.png
+        ├── 06-parallel-jdbc-ingestion.png
+        ├── 07-fact-sales-schema.png
+        ├── 08-hive-external-tables.png
+        ├── 09-fact-sales-count.png
+        └── 10-monthly-sales-analytics.png
 ```
 
 ---
 
-# Running the Project
+# 23. Running the Pipeline
 
-## 1. Start Hadoop
+## Start Hadoop
 
 ```bash
 start-dfs.sh
@@ -1235,19 +978,7 @@ NodeManager
 
 ---
 
-# 2. Create HDFS Bronze Directories
-
-```bash
-hdfs dfs -mkdir -p /data/ecommerce/landing/csv/payments
-
-hdfs dfs -mkdir -p /data/ecommerce/landing/csv/shipments
-
-hdfs dfs -mkdir -p /data/ecommerce/landing/avro/web_events
-```
-
----
-
-# 3. Upload Batch Files
+## Load raw CSV and Avro data into HDFS
 
 ```bash
 hdfs dfs -put output/csv/payments/* \
@@ -1262,56 +993,50 @@ hdfs dfs -put output/avro/web_events/* \
 
 ---
 
-# 4. Run CSV and Avro Spark Ingestion
+## Run CSV and Avro ingestion
 
 ```bash
 spark-submit \
   --packages org.apache.spark:spark-avro_2.13:4.1.1 \
-  ingestion.py
+  spark/ingestion.py
 ```
 
 ---
 
-# 5. Run PostgreSQL JDBC Ingestion
+## Run PostgreSQL ingestion
 
 ```bash
 spark-submit \
   --packages org.postgresql:postgresql:42.7.7 \
-  postgres_ingestion.py
+  spark/postgres_ingestion.py
 ```
 
 ---
 
-# 6. Run Large Table Parallel JDBC Ingestion
+## Run parallel JDBC ingestion for large tables
 
 ```bash
 spark-submit \
   --driver-memory 2g \
   --executor-memory 2g \
   --packages org.postgresql:postgresql:42.7.7 \
-  postgres_large_tables.py
+  spark/postgres_large_tables.py
 ```
 
 ---
 
-# 7. Build Gold Layer
+## Build Gold Layer
 
 ```bash
 spark-submit \
   --driver-memory 2g \
   --executor-memory 2g \
-  gold_transform.py
-```
-
-Verify:
-
-```bash
-hdfs dfs -du -h /data/ecommerce/gold
+  spark/gold_transform.py
 ```
 
 ---
 
-# 8. Start HiveServer2
+## Start HiveServer2
 
 ```bash
 /home/hadoop/hive/bin/hiveserver2
@@ -1319,7 +1044,7 @@ hdfs dfs -du -h /data/ecommerce/gold
 
 ---
 
-# 9. Connect Using Beeline
+## Connect through Beeline
 
 ```bash
 /home/hadoop/hive/bin/beeline
@@ -1333,19 +1058,14 @@ Then:
 
 ---
 
-# 10. Create Hive Database
+## Create the Hive database and external tables
 
 ```sql
 CREATE DATABASE ecommerce_dw;
-
 USE ecommerce_dw;
 ```
 
----
-
-# 11. Create External Tables
-
-Run:
+Run the Hive table-definition file:
 
 ```bash
 /home/hadoop/hive/bin/beeline \
@@ -1356,151 +1076,112 @@ Run:
 
 ---
 
-# 12. Verify Tables
+# 24. Data Generator Repository
 
-```sql
-SHOW TABLES;
-```
+The custom generator can be maintained as a separate project/repository.
 
-Expected:
-
-```text
-dim_customer
-dim_date
-dim_product
-dim_supplier
-fact_events
-fact_payments
-fact_sales
-fact_shipments
-```
+**Data Generator:**  
+`[ADD DATA GENERATOR REPOSITORY LINK HERE]`
 
 ---
 
-# Example HDFS Output
+# 25. Full Pipeline Repository
 
-Silver Layer:
-
-```text
-/data/ecommerce/standardized/
-
-customers
-suppliers
-products
-orders
-order_items
-payments
-shipments
-web_events
-```
-
-Gold Layer:
-
-```text
-/data/ecommerce/gold/
-
-dim_customer
-dim_supplier
-dim_product
-dim_date
-fact_sales
-fact_payments
-fact_shipments
-fact_events
-```
+**GitHub Repository:**  
+`[ADD GITHUB REPOSITORY LINK HERE]`
 
 ---
 
-# Portfolio Highlights
+# 26. Portfolio Highlights
 
-This project demonstrates practical experience with:
+This project demonstrates hands-on work with:
 
-- Big Data architecture
-- Data lake design
+- 40M+ logical records
+- 15M+ sales fact rows
+- Multi-format ingestion
+- Relational database ingestion
+- Distributed storage
+- Parallel database extraction
+- PySpark transformations
 - Bronze / Silver / Gold architecture
-- Multi-source ingestion
-- PostgreSQL
-- JDBC
-- Parallel JDBC reads
-- Hadoop HDFS
-- Apache Spark
-- PySpark
-- CSV processing
-- Avro processing
-- Parquet
-- Data validation
-- Data cleansing
+- Parquet storage
 - Dimensional modeling
-- Fact tables
-- Dimension tables
-- Apache Hive
-- HiveServer2
-- Beeline
-- Hive External Tables
+- Hive external tables
 - SQL analytics
+- VM networking
 - Docker
-- Linux
-- Virtual machine networking
+- Data quality handling
 - Large-scale synthetic data generation
-- Processing tens of millions of records
+
+Rather than demonstrating each technology independently, the project integrates them into one complete engineering workflow.
 
 ---
 
-# Key Achievement
+# 27. Future Improvements
 
-The final pipeline successfully processes tens of millions of records from multiple data sources and exposes more than:
+Potential next steps include:
 
-```text
-15,004,502 sales fact rows
-```
+- Incremental JDBC ingestion
+- Watermark-based loads
+- Change Data Capture (CDC)
+- Kafka event streaming
+- Spark Structured Streaming
+- Airflow orchestration
+- Automated data-quality checks
+- Schema registry
+- Data lineage
+- Metadata catalog
+- Unit tests and integration tests
+- CI/CD
+- Gold-table partitioning
+- Parquet file compaction
+- Apache Iceberg / Delta Lake / Hudi
+- BI dashboard integration
+- Cloud deployment
+- Object storage such as Amazon S3
 
-through Hive for SQL analytics.
+---
 
-The complete workflow demonstrates:
+# 28. Final Result
+
+The completed pipeline demonstrates the entire lifecycle of a scalable analytics platform:
 
 ```text
 Generate
-→ Ingest
-→ Store
-→ Validate
-→ Clean
-→ Standardize
-→ Transform
-→ Model
-→ Serve
-→ Analyze
+  ↓
+Ingest
+  ↓
+Land
+  ↓
+Validate
+  ↓
+Clean
+  ↓
+Standardize
+  ↓
+Transform
+  ↓
+Model
+  ↓
+Serve
+  ↓
+Analyze
 ```
 
----
-
-# Future Improvements
-
-Possible future improvements include:
-
-- Incremental ingestion
-- CDC
-- Watermark-based processing
-- Spark Structured Streaming
-- Kafka integration
-- Airflow orchestration
-- Data quality framework
-- Schema registry
-- Automated pipeline monitoring
-- Partitioned Gold tables
-- File compaction
-- Iceberg / Delta Lake / Hudi
-- BI dashboard integration
-- Cloud deployment
-- Object storage such as S3
-- CI/CD pipeline
-- Data lineage
-- Metadata catalog
-- Unit and integration testing
+The final platform successfully processes tens of millions of records, creates a structured Gold analytical model, and exposes **15,004,502 fact_sales rows** through Apache Hive for SQL analytics.
 
 ---
 
-# Author
+## Acknowledgment
 
-Big Data Engineering Portfolio Project
+Special thanks to **Instructor Shaker** for the guidance and support throughout the project and learning journey.
 
-Built as an end-to-end implementation of a scalable e-commerce data platform using Hadoop, Spark, PostgreSQL, Hive, Parquet, Avro, Python, SQL, Docker, and Linux.
+---
+
+## Author
+
+**Big Data / Data Engineering Portfolio Project**
+
+Technologies:
+
+`Python` • `PostgreSQL` • `Docker` • `Hadoop HDFS` • `Apache Spark` • `PySpark` • `JDBC` • `CSV` • `Avro` • `Parquet` • `Apache Hive` • `SQL`
