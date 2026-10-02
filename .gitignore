@@ -1,0 +1,9 @@
+data/
+output/
+*.csv
+*.avro
+*.parquet
+*.log
+.env
+.venv/
+__pycache__/
