@@ -1081,15 +1081,7 @@ Run the Hive table-definition file:
 The custom generator can be maintained as a separate project/repository.
 
 **Data Generator:**  
-`[ADD DATA GENERATOR REPOSITORY LINK HERE]`
-
----
-
-# 25. Full Pipeline Repository
-
-**GitHub Repository:**  
-`[ADD GITHUB REPOSITORY LINK HERE]`
-
+'https://github.com/ahmadmbadreldin/ecommerce_source_generator'
 ---
 
 # 26. Portfolio Highlights
